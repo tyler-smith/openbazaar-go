@@ -18,9 +18,9 @@ var log = logging.MustGetLogger("exchangeRates")
 
 type ExchangeRateProvider struct {
 	fetchUrl string
-	cache map[string]float64
-	client *http.Client
-	decoder ExchangeRateDecoder
+	cache    map[string]float64
+	client   *http.Client
+	decoder  ExchangeRateDecoder
 }
 
 type ExchangeRateDecoder interface {
@@ -28,10 +28,10 @@ type ExchangeRateDecoder interface {
 }
 
 // empty structs to tag the different ExchangeRateDecoder implementations
-type BitcoinAverageDecoder struct {}
-type BitPayDecoder struct {}
-type BlockchainInfoDecoder struct {}
-type BitcoinChartsDecoder struct {}
+type BitcoinAverageDecoder struct{}
+type BitPayDecoder struct{}
+type BlockchainInfoDecoder struct{}
+type BitcoinChartsDecoder struct{}
 
 type BitcoinPriceFetcher struct {
 	sync.Mutex
@@ -109,14 +109,14 @@ func (provider *ExchangeRateProvider) fetch() (err error) {
 	log.Info("Fetching rates at " + provider.fetchUrl)
 	resp, err := provider.client.Get(provider.fetchUrl)
 	if err != nil {
-		log.Error("Failed to fetch from " + provider.fetchUrl, err)
+		log.Error("Failed to fetch from "+provider.fetchUrl, err)
 		return err
 	}
 	decoder := json.NewDecoder(resp.Body)
 	var dataMap interface{}
 	err = decoder.Decode(&dataMap)
 	if err != nil {
-		log.Error("Failed to decode JSON from " + provider.fetchUrl, err)
+		log.Error("Failed to decode JSON from "+provider.fetchUrl, err)
 		return err
 	}
 	return provider.decoder.decode(dataMap, provider.cache)
