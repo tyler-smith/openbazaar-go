@@ -5,7 +5,6 @@ import (
 	"errors"
 	"github.com/op/go-logging"
 	"golang.org/x/net/proxy"
-	"io"
 	"net"
 	"net/http"
 	"strconv"
@@ -17,14 +16,27 @@ const SatoshiPerBTC = 100000000
 
 var log = logging.MustGetLogger("exchangeRates")
 
-type ExchangeRateProvider interface {
-	fetch() error
+type ExchangeRateProvider struct {
+	fetchUrl string
+	cache map[string]float64
+	client *http.Client
+	decoder ExchangeRateDecoder
 }
+
+type ExchangeRateDecoder interface {
+	decode(dat interface{}, cache map[string]float64) (err error)
+}
+
+// empty structs to tag the different ExchangeRateDecoder implementations
+type BitcoinAverageDecoder struct {}
+type BitPayDecoder struct {}
+type BlockchainInfoDecoder struct {}
+type BitcoinChartsDecoder struct {}
 
 type BitcoinPriceFetcher struct {
 	sync.Mutex
 	cache     map[string]float64
-	providers []ExchangeRateProvider
+	providers []*ExchangeRateProvider
 }
 
 func NewBitcoinPriceFetcher(dialer proxy.Dialer) *BitcoinPriceFetcher {
@@ -37,8 +49,13 @@ func NewBitcoinPriceFetcher(dialer proxy.Dialer) *BitcoinPriceFetcher {
 	}
 	tbTransport := &http.Transport{Dial: dial}
 	client := &http.Client{Transport: tbTransport, Timeout: time.Minute}
-	b.providers = []ExchangeRateProvider{&BitcoinAverage{b.cache, client}, &BitPay{b.cache, client}, &BlockchainInfo{b.cache, client}, &BitcoinCharts{b.cache, client}}
 
+	b.providers = []*ExchangeRateProvider{
+		&ExchangeRateProvider{"https://ticker.openbazaar.org/api", b.cache, client, BitcoinAverageDecoder{}},
+		&ExchangeRateProvider{"https://bitpay.com/api/rates", b.cache, client, BitPayDecoder{}},
+		&ExchangeRateProvider{"https://blockchain.info/ticker", b.cache, client, BlockchainInfoDecoder{}},
+		&ExchangeRateProvider{"https://api.bitcoincharts.com/v1/weighted_prices.json", b.cache, client, BitcoinChartsDecoder{}},
+	}
 	go b.run()
 	return &b
 }
@@ -74,6 +91,37 @@ func (b *BitcoinPriceFetcher) UnitsPerCoin() int {
 	return SatoshiPerBTC
 }
 
+func (b *BitcoinPriceFetcher) fetchCurrentRates() error {
+	b.Lock()
+	defer b.Unlock()
+	for _, provider := range b.providers {
+		err := provider.fetch()
+		if err == nil {
+			log.Notice("Fetched current Bitcoin rates from " + provider.fetchUrl)
+			return nil
+		}
+	}
+	log.Error("Failed to fetch bitcoin exchange rates")
+	return errors.New("All exchange rate API queries failed")
+}
+
+func (provider *ExchangeRateProvider) fetch() (err error) {
+	log.Info("Fetching rates at " + provider.fetchUrl)
+	resp, err := provider.client.Get(provider.fetchUrl)
+	if err != nil {
+		log.Error("Failed to fetch from " + provider.fetchUrl, err)
+		return err
+	}
+	decoder := json.NewDecoder(resp.Body)
+	var dataMap interface{}
+	err = decoder.Decode(&dataMap)
+	if err != nil {
+		log.Error("Failed to decode JSON from " + provider.fetchUrl, err)
+		return err
+	}
+	return provider.decoder.decode(dataMap, provider.cache)
+}
+
 func (b *BitcoinPriceFetcher) run() {
 	b.fetchCurrentRates()
 	ticker := time.NewTicker(time.Minute * 15)
@@ -82,39 +130,9 @@ func (b *BitcoinPriceFetcher) run() {
 	}
 }
 
-func (b *BitcoinPriceFetcher) fetchCurrentRates() error {
-	b.Lock()
-	defer b.Unlock()
-	for _, provider := range b.providers {
-		err := provider.fetch()
-		if err == nil {
-			return nil
-		}
-	}
-	log.Error("Failed to fetch bitcoin exchange rates")
-	return errors.New("All exchange rate API queries failed")
-}
-
-type BitcoinAverage struct {
-	cache  map[string]float64
-	client *http.Client
-}
-
-func (b *BitcoinAverage) fetch() (err error) {
-	resp, err := b.client.Get("https://ticker.openbazaar.org/api")
-	if err != nil {
-		return err
-	}
-	return b.decode(resp.Body)
-}
-
-func (b *BitcoinAverage) decode(body io.ReadCloser) (err error) {
-	decoder := json.NewDecoder(body)
-	var data map[string]interface{}
-	err = decoder.Decode(&data)
-	if err != nil {
-		return err
-	}
+// Decoders
+func (d BitcoinAverageDecoder) decode(dat interface{}, cache map[string]float64) (err error) {
+	data := dat.(map[string]interface{})
 	for k, v := range data {
 		if k != "timestamp" {
 			val, ok := v.(map[string]interface{})
@@ -125,66 +143,31 @@ func (b *BitcoinAverage) decode(body io.ReadCloser) (err error) {
 			if !ok {
 				return errors.New("Type assertion failed")
 			}
-			b.cache[k] = price
+			cache[k] = price
 		}
 	}
 	return nil
 }
 
-type BitPay struct {
-	cache  map[string]float64
-	client *http.Client
-}
-
-func (b *BitPay) fetch() (err error) {
-	resp, err := b.client.Get("https://bitpay.com/api/rates")
-	if err != nil {
-		return err
-	}
-	return b.decode(resp.Body)
-}
-
-func (b *BitPay) decode(body io.ReadCloser) (err error) {
-	decoder := json.NewDecoder(body)
-	var data []map[string]interface{}
-	err = decoder.Decode(&data)
-	if err != nil {
-		return err
-	}
+func (b BitPayDecoder) decode(dat interface{}, cache map[string]float64) (err error) {
+	data := dat.([]interface{})
 	for _, obj := range data {
-		k, ok := obj["code"].(string)
+		code := obj.(map[string]interface{})
+		k, ok := code["code"].(string)
 		if !ok {
 			return errors.New("Type assertion failed")
 		}
-		price, ok := obj["rate"].(float64)
+		price, ok := code["rate"].(float64)
 		if !ok {
 			return errors.New("Type assertion failed")
 		}
-		b.cache[k] = price
+		cache[k] = price
 	}
 	return nil
 }
 
-type BlockchainInfo struct {
-	cache  map[string]float64
-	client *http.Client
-}
-
-func (b *BlockchainInfo) fetch() (err error) {
-	resp, err := b.client.Get("https://blockchain.info/ticker")
-	if err != nil {
-		return err
-	}
-	return b.decode(resp.Body)
-}
-
-func (b *BlockchainInfo) decode(body io.ReadCloser) (err error) {
-	decoder := json.NewDecoder(body)
-	var data map[string]interface{}
-	err = decoder.Decode(&data)
-	if err != nil {
-		return err
-	}
+func (b BlockchainInfoDecoder) decode(dat interface{}, cache map[string]float64) (err error) {
+	data := dat.(map[string]interface{})
 	for k, v := range data {
 		val, ok := v.(map[string]interface{})
 		if !ok {
@@ -194,31 +177,13 @@ func (b *BlockchainInfo) decode(body io.ReadCloser) (err error) {
 		if !ok {
 			return errors.New("Type assertion failed")
 		}
-		b.cache[k] = price
+		cache[k] = price
 	}
 	return nil
 }
 
-type BitcoinCharts struct {
-	cache  map[string]float64
-	client *http.Client
-}
-
-func (b *BitcoinCharts) fetch() (err error) {
-	resp, err := b.client.Get("https://api.bitcoincharts.com/v1/weighted_prices.json")
-	if err != nil {
-		return err
-	}
-	return b.decode(resp.Body)
-}
-
-func (b *BitcoinCharts) decode(body io.ReadCloser) (err error) {
-	decoder := json.NewDecoder(body)
-	var data map[string]interface{}
-	err = decoder.Decode(&data)
-	if err != nil {
-		return err
-	}
+func (b BitcoinChartsDecoder) decode(dat interface{}, cache map[string]float64) (err error) {
+	data := dat.(map[string]interface{})
 	for k, v := range data {
 		if k != "timestamp" {
 			val, ok := v.(map[string]interface{})
@@ -237,7 +202,7 @@ func (b *BitcoinCharts) decode(body io.ReadCloser) (err error) {
 			if err != nil {
 				return err
 			}
-			b.cache[k] = price
+			cache[k] = price
 		}
 	}
 	return nil
