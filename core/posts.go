@@ -21,40 +21,11 @@ const (
 	PostMaxCharacters = 50000
 )
 
-type thumbnail struct {
-	Tiny   string `json:"tiny"`
-	Small  string `json:"small"`
-	Medium string `json:"medium"`
-}
 type postData struct {
-	Hash          string    `json:"hash"`
-	Slug          string    `json:"slug"`
-	Title         string    `json:"title"`
-	Thumbnail     thumbnail `json:"thumbnail"`
-}
-
-func (n *OpenBazaarNode) GenerateSlug(title string) (string, error) {
-	title = strings.Replace(title, "/", "", -1)
-	slugFromTitle := func(title string) string {
-		l := SentenceMaxCharacters - SlugBuffer
-		if len(title) < SentenceMaxCharacters-SlugBuffer {
-			l = len(title)
-		}
-		return url.QueryEscape(sanitize.Path(strings.ToLower(title[:l])))
-	}
-	counter := 1
-	slugBase := slugFromTitle(title)
-	slugToTry := slugBase
-	for {
-		_, err := n.GetPostFromSlug(slugToTry)
-		if os.IsNotExist(err) {
-			return slugToTry, nil
-		} else if err != nil {
-			return "", err
-		}
-		slugToTry = slugBase + strconv.Itoa(counter)
-		counter++
-	}
+	Hash      string    `json:"hash"`
+	Slug      string    `json:"slug"`
+	Title     string    `json:"title"`
+	Thumbnail thumbnail `json:"thumbnail"`
 }
 
 // Add our identity to the post and sign it
@@ -130,20 +101,11 @@ func (n *OpenBazaarNode) extractpostData(post *pb.SignedPost) (postData, error) 
 		postLength = PostLength
 	}
 
-	contains := func(s []string, e string) bool {
-		for _, a := range s {
-			if a == e {
-				return true
-			}
-		}
-		return false
-	}
-
 	ld := postData{
-		Hash:         postHash,
-		Slug:         post.Post.Slug,
-		Title:        post.Post.Title,
-		Thumbnail:    thumbnail{post.Post.Post.Images[0].Tiny, post.Post.Post.Images[0].Small, post.Post.Post.Images[0].Medium},
+		Hash:      postHash,
+		Slug:      post.Post.Slug,
+		Title:     post.Post.Title,
+		Thumbnail: thumbnail{post.Post.Post.Images[0].Tiny, post.Post.Post.Images[0].Small, post.Post.Post.Images[0].Medium},
 	}
 	return ld, nil
 }
