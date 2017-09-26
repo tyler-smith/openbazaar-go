@@ -17,13 +17,8 @@ import (
 )
 
 const (
-	TitleMaxCharacters       = 140
-	PostLength   			 			 = 160
-	PostMaxCharacters 			 = 50000
-	MaxListItems             = 30
-	FilenameMaxCharacters    = 255
-	SentenceMaxCharacters    = 70
-	SlugBuffer               = 5
+	PostLength        = 160
+	PostMaxCharacters = 50000
 )
 
 type thumbnail struct {
