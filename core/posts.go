@@ -168,7 +168,7 @@ func (n *OpenBazaarNode) updatePostOnDisk(index []postData, ld postData, updateR
 }
 
 // Update the hashes in the posts.json file
-func (n *OpenBazaarNode) UpdateIndexHashes(hashes map[string]string) error {
+func (n *OpenBazaarNode) UpdatePostHashes(hashes map[string]string) error {
 	indexPath := path.Join(n.RepoPath, "root", "posts.json")
 
 	var index []postData
