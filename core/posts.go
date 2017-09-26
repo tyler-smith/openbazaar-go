@@ -1,28 +1,19 @@
 package core
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	mh "gx/ipfs/QmVGtdTZdTFaLsaj2RwdVG8jcjNNcp1DE914DKZ2kHmXHw/go-multihash"
 	cid "gx/ipfs/QmYhQaCYEcaPPjxJX7YcPcVKkQfRy6sJ7B3XmGFk82XYdQ/go-cid"
 	"io/ioutil"
-	"net/url"
 	"os"
 	"path"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/OpenBazaar/jsonpb"
 	"github.com/OpenBazaar/openbazaar-go/ipfs"
 	"github.com/OpenBazaar/openbazaar-go/pb"
-	"github.com/OpenBazaar/openbazaar-go/repo"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/golang/protobuf/proto"
-	"github.com/kennygrant/sanitize"
-	"github.com/microcosm-cc/bluemonday"
 )
 
 const (
